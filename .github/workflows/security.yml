@@ -1,0 +1,100 @@
+name: Pi Security
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  repository-security:
+    name: Repository Security
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      # Prevent private keys and certificates from entering the repository.
+      - name: Check prohibited key and certificate files
+        shell: bash
+        run: |
+          if find . -type f \( \
+            -name "*.pem" -o \
+            -name "*.key" -o \
+            -name "*.p12" -o \
+            -name "*.pfx" -o \
+            -name "*.jks" -o \
+            -name "*.keystore" \
+          \) -print -quit | grep -q .; then
+            echo "Prohibited key or certificate file found."
+            exit 1
+          fi
+
+      # Real Pi databases must never be committed to source control.
+      - name: Check prohibited sensitive data files
+        shell: bash
+        run: |
+          if find . -type f \( \
+            -name "*.db" -o \
+            -name "*.sqlite" -o \
+            -name "*.sqlite3" \
+          \) -print -quit | grep -q .; then
+            echo "Prohibited database file found."
+            exit 1
+          fi
+
+      # These directories are reserved for local/private runtime data.
+      - name: Check prohibited sensitive directories
+        shell: bash
+        run: |
+          prohibited_directory="$(find . -type d \( \
+            -name "secrets" -o \
+            -name "private" -o \
+            -name "backups" -o \
+            -name "data" \
+          \) -print -quit)"
+
+          if [ -n "$prohibited_directory" ]; then
+            echo "Prohibited sensitive directory found: $prohibited_directory"
+            exit 1
+          fi
+
+      # Ensure the project's governance/security documentation remains present.
+      - name: Verify required project documentation
+        shell: bash
+        run: |
+          required_files=(
+            "README.md"
+            "docs/pi-project.md"
+            ".github/pull_request_template.md"
+          )
+
+          for file in "${required_files[@]}"; do
+            if [ ! -f "$file" ]; then
+              echo "Required project file missing: $file"
+              exit 1
+            fi
+          done
+
+      - name: Repository security checks passed
+        run: echo "Pi repository security checks passed."
+
+  secret-scanning:
+    name: Secret Scanning
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Scan repository for secrets
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
